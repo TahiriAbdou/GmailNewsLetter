@@ -1,6 +1,11 @@
 <?php 
+
 session_start();
+
 require 'vendor/autoload.php';
+
+ini_set('memory_limit',-1);
+set_time_limit(0);
 
 if(!function_exists('dd')){
 	function dd($var){
@@ -51,45 +56,64 @@ if (isset($authUrl)){
 
 $service = new Google_Service_Gmail($client);
 
-$optParams = [];
-$optParams['labelIds'] = 'INBOX';
-$optParams['q']	= !empty($_GET['q']) ? $_GET['q'] : 'immo';
 
-$mails = [];
-
-$messages = $service->users_messages->listUsersMessages('me',$optParams);
-$list = $messages->getMessages();
 
 $optParamsGet = [];
 $optParamsGet['format'] = 'full';
 
-$notAllowed = ['facebook.com','facebookmail.com','bounce.linkedin.com','scoutcamp.bounces.google.com'];
+$notAllowed = ['facebook.com','facebookmail.com','bounce.linkedin.com','scoutcamp.bounces.google.com','plus.google.com'];
 
-foreach ($list as $jk => $l) {
-	$message = $service->users_messages->get('me',$l->getId(),$optParamsGet);
-	$messagePayload = $message->getPayload();
-	$headers = $message->getPayload()->getHeaders();
-	//dd($headers);
-	foreach ($headers as $k => $v) {
-		if($v['name']=='Received-SPF'){
-			$pattern = '/[a-z\d._%+-]+@[a-z\d.-]+\.[a-z]{2,4}\b/i';
-			preg_match($pattern,$v['value'],$matches);
-			$email = current($matches);
-			$domain = explode('@',$email);
-			$domain = array_pop($domain);
-			if(!in_array($domain,$notAllowed)){
-				$mails[$jk] = current($matches);
+//dd(count($list));
+/*
+foreach ($list as $key => $value) {
+	$m = $service->users_messages->get('me',$value->getId(),$optParamsGet);
+	echo $m->getSnippet() . "<br>";
+}
+die;
+*/
+
+$optParams = [
+	'labelIds'		=>	'INBOX',
+	'maxResults'	=>	20,
+	'q'				=>	'location de voiture',
+	'pageToken'		=>	!empty($_GET['page']) ? $_GET['page'] : '',
+];
+
+$messages = $service->users_messages->listUsersMessages('me',$optParams);
+$list = $messages->getMessages();
+$nextToken = $messages->getNextPageToken();
+
+
+while(!empty($list)){
+	$mails = [];
+	foreach ($list as $jk => $l) {
+		$message = $service->users_messages->get('me',$l->getId(),$optParamsGet);
+		$messagePayload = $message->getPayload();
+		$headers = $message->getPayload()->getHeaders();
+		foreach ($headers as $k => $v) {
+			if($v['name']=='Received-SPF'){
+				$pattern = '/[a-z\d._%+-]+@[a-z\d.-]+\.[a-z]{2,4}\b/i';
+				preg_match($pattern,$v['value'],$matches);
+				$email = current($matches);
+				$domain = explode('@',$email);
+				$domain = array_pop($domain);
+				if(!in_array($domain,$notAllowed)){
+					$mails[$jk] = current($matches);
+				}
+			}
+
+			if($v['name']=='From'){
+				if(isset($mails[$jk])) $mails[$jk] = trim(ucwords(strtolower($v['value']))).', '.$mails[$jk];
 			}
 		}
-		if($v['name']=='From'){
-			if(isset($mails[$jk])) $mails[$jk] = trim(ucwords(strtolower($v['value']))).', '.$mails[$jk];
-		}
 	}
+	$mails = array_unique($mails);
+	file_put_contents('mails', implode("\n",$mails).PHP_EOL, FILE_APPEND);
+	$optParams['pageToken'] = $nextToken;
+	$messages = $service->users_messages->listUsersMessages('me',$optParams);
+	$list = $messages->getMessages();
+	$nextToken = $messages->getNextPageToken();
 }
-
-$mails = array_unique($mails);
-
-echo implode('<br>',$mails);
 
 
 // id 852156071671-k3jmn0ngdbijp7t7l8c1r829gfpa5vqk.apps.googleusercontent.com
